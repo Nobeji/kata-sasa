@@ -1,0 +1,170 @@
+// Prisma schema for Kata Sasa unified event platform
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  ORGANIZER
+  SCANNER
+  GUEST
+}
+
+enum EventStatus {
+  DRAFT
+  PUBLISHED
+  CANCELLED
+  ENDED
+}
+
+enum TicketStatus {
+  RESERVED
+  PAID
+  CHECKED_IN
+  CANCELLED
+}
+
+enum RsvpStatus {
+  PENDING
+  ATTENDING
+  DECLINED
+}
+
+enum CheckinResult {
+  SUCCESS
+  INVALID
+  WRONG_EVENT
+  ALREADY_CHECKED_IN
+  NOT_PAID
+}
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  name         String?
+  role         Role      @default(GUEST)
+  passwordHash String?
+  events       Event[]   @relation("OrganizerEvents")
+  checkins     Checkin[] @relation("ScannerCheckins")
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
+
+model Event {
+  id           String       @id @default(cuid())
+  slug         String       @unique
+  title        String
+  description  String?
+  startAt      DateTime
+  endAt        DateTime
+  venueName    String
+  venueAddress String?
+  timezone     String       @default("Africa/Dar_es_Salaam")
+  capacity     Int
+  coverImage   String?
+  status       EventStatus  @default(DRAFT)
+  organizerId  String
+  organizer    User         @relation("OrganizerEvents", fields: [organizerId], references: [id])
+  ticketTypes  TicketType[]
+  tickets      Ticket[]
+  invitations  Invitation[]
+  checkins     Checkin[]
+  checkinAttempts CheckinAttempt[]
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  @@index([organizerId])
+  @@index([status])
+}
+
+model TicketType {
+  id               String    @id @default(cuid())
+  eventId          String
+  event            Event     @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  name             String
+  price            Int
+  currency         String    @default("TZS")
+  quantity         Int
+  sold             Int       @default(0)
+  saleStart        DateTime?
+  saleEnd          DateTime?
+  isInvitationType Boolean   @default(false)
+  tickets          Ticket[]
+  createdAt        DateTime  @default(now())
+
+  @@index([eventId])
+}
+
+model Ticket {
+  id              String       @id @default(cuid())
+  eventId         String
+  event           Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  ticketTypeId    String
+  ticketType      TicketType   @relation(fields: [ticketTypeId], references: [id])
+  holderName      String
+  holderEmail     String
+  qrCode          String       @unique
+  status          TicketStatus @default(RESERVED)
+  reservedAt      DateTime     @default(now())
+  paidAt          DateTime?
+  stripeSessionId String?      @unique
+  checkin         Checkin?
+  invitation      Invitation?  @relation("InvitationTicket")
+
+  @@index([eventId, status])
+  @@index([ticketTypeId])
+  @@index([holderEmail])
+}
+
+model Invitation {
+  id          String     @id @default(cuid())
+  eventId     String
+  event       Event      @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  guestName   String
+  guestEmail  String
+  token       String     @unique
+  templateId  String
+  rsvpStatus  RsvpStatus @default(PENDING)
+  sentAt      DateTime?
+  respondedAt DateTime?
+  ticketId    String?    @unique
+  ticket      Ticket?    @relation("InvitationTicket", fields: [ticketId], references: [id])
+
+  @@index([eventId, rsvpStatus])
+  @@index([guestEmail])
+}
+
+model Checkin {
+  id          String   @id @default(cuid())
+  eventId     String
+  event       Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  ticketId    String   @unique
+  ticket      Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  checkedInAt DateTime @default(now())
+  scannedBy   String
+  scanner     User     @relation("ScannerCheckins", fields: [scannedBy], references: [id])
+  deviceInfo  String?
+
+  @@index([eventId, checkedInAt])
+}
+
+model CheckinAttempt {
+  id         String        @id @default(cuid())
+  eventId    String
+  event      Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  ticketId   String?
+  qrCode     String
+  result     CheckinResult
+  scannedBy  String?
+  deviceInfo String?
+  createdAt  DateTime      @default(now())
+
+  @@index([eventId, createdAt])
+  @@index([ticketId])
+}
